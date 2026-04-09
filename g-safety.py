@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import date
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. ユーザー定義 ---
+# --- 1. ユーザー定義（ログイン情報） ---
 USER_CREDENTIALS = {
     "yamada": "pass123",
     "sato": "mount456",
@@ -22,9 +22,9 @@ if not st.session_state['logged_in']:
         user_id = st.text_input("ユーザーID")
         password = st.text_input("パスワード", type="password")
         if st.form_submit_button("ログイン"):
-            # IDの空白などを考慮し、get()で安全に取得
-            if USER_CREDENTIALS.get(user_id.strip()) == password:
-                st.session_state.update({'logged_in': True, 'user_name': user_id.strip()})
+            uid = user_id.strip()
+            if USER_CREDENTIALS.get(uid) == password:
+                st.session_state.update({'logged_in': True, 'user_name': uid})
                 st.rerun()
             else:
                 st.error("IDまたはパスワードが正しくありません")
@@ -32,22 +32,20 @@ if not st.session_state['logged_in']:
 
 # --- 4. メイン画面（ログイン後） ---
 
-# Googleスプレッドシートへの接続設定
-# SecretsからURLを取得
-try:
-    SPREADSHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
-except KeyError:
-    st.error("SecretsにスプレッドシートのURLが設定されていません。")
-    st.stop()
-
 # 接続の確立
+# Streamlit CloudのSecretsにある [connections.gsheets] セクションを自動参照します
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
-    # 明示的に URL を指定して最新データを読み込む
-    return conn.read(spreadsheet=SPREADSHEET_URL, ttl=0)
+    # ttl=0 で常に最新のスプレッドシート情報を取得
+    return conn.read(ttl=0)
 
-df = get_data()
+try:
+    df = get_data()
+except Exception as e:
+    st.error("スプレッドシートへの接続に失敗しました。Secretsの設定を確認してください。")
+    st.info("ヒント: private_key の改行が正しく設定されていない可能性があります。")
+    st.stop()
 
 # サイドバー：ユーザー情報とログアウト
 st.sidebar.markdown(f"### 👤 ログイン: **{st.session_state['user_name']}**")
@@ -72,11 +70,11 @@ with st.sidebar.expander("📝 新規計画を登録する", expanded=True):
                 "下山予定日": str(end_date),
                 "ステータス": "入山中"
             }])
-            # 既存データに結合
+            # 既存データに新しい行を結合
             updated_df = pd.concat([df, new_row], ignore_index=True)
             
-            # スプレッドシートを更新（URLを明示して書き込み権限を確保）
-            conn.update(spreadsheet=SPREADSHEET_URL, data=updated_df)
+            # スプレッドシートを更新
+            conn.update(data=updated_df)
             
             st.success("登録しました！")
             st.rerun()
@@ -87,54 +85,12 @@ with st.sidebar.expander("📝 新規計画を登録する", expanded=True):
 
 # --- 6. 状況表示（メトリクス） ---
 today_str = str(date.today())
-# データが空の場合の処理
 if df.empty:
     in_mountain = pd.DataFrame()
     overdue = pd.DataFrame()
 else:
     in_mountain = df[df["ステータス"] == "入山中"]
-    # 日付比較のために文字列比較
     overdue = in_mountain[in_mountain["下山予定日"] < today_str]
 
 m1, m2 = st.columns(2)
-m1.metric("現在入山中", f"{len(in_mountain)} 名")
-m2.metric("下山遅延", f"{len(overdue)} 名", 
-          delta=f"{len(overdue)}名" if not overdue.empty else None, 
-          delta_color="inverse")
-
-# --- 7. タブ表示 ---
-tab1, tab2 = st.tabs(["📌 現在の入山状況", "📜 全履歴"])
-
-with tab1:
-    if not in_mountain.empty:
-        # 遅延している行を赤くするスタイル
-        def highlight_overdue(s):
-            return ['background-color: #ffcccc' if s.下山予定日 < today_str else '' for _ in s]
-        
-        st.dataframe(in_mountain.style.apply(highlight_overdue, axis=1), use_container_width=True)
-        
-        # 下山報告機能
-        my_active_plans = in_mountain[in_mountain["氏名"] == st.session_state['user_name']]
-        if not my_active_plans.empty:
-            st.markdown("---")
-            st.subheader("✅ 下山報告")
-            selected_plan_idx = st.selectbox(
-                "報告する計画を選択", 
-                my_active_plans.index, 
-                format_func=lambda x: f"{df.loc[x, '山域']} ({df.loc[x, '入山日']}〜)"
-            )
-            if st.button("無事下山しました"):
-                # ステータスを更新して書き込み
-                df.at[selected_plan_idx, "ステータス"] = "下山済み"
-                conn.update(spreadsheet=SPREADSHEET_URL, data=df)
-                st.balloons()
-                st.success("下山報告を完了しました！")
-                st.rerun()
-    else:
-        st.info("現在、入山中のメンバーはいません。")
-
-with tab2:
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.write("履歴はありません。")
+m1.metric("現在入山中",
