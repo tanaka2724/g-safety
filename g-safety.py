@@ -32,15 +32,12 @@ if not st.session_state['logged_in']:
 # --- 4. メイン画面（ログイン後） ---
 
 # Googleスプレッドシートへの接続
-# secrets.toml の [connections.gsheets] 設定を自動的に使用します
-conn = st.connection("gsheets", type=GSheetsConnection)
+# Secretsから直接情報を取得して接続
+conn = st.connection("gsheets", type=GSheetsConnection, **st.secrets)
 
-# データの読み込み
 def get_data():
-    # 引数を空にすることで secrets.toml の spreadsheet URL を使用し、
-    # かつサービスアカウント認証で読み込みます
-    data = conn.read(ttl=0)
-    return data.dropna(how="all")
+    # spreadsheet引数を明示的に渡す
+    return conn.read(spreadsheet=st.secrets["spreadsheet"], ttl=0)
 
 df = get_data()
 
