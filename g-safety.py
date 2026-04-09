@@ -33,11 +33,11 @@ if not st.session_state['logged_in']:
 
 # Googleスプレッドシートへの接続
 # Secretsから直接情報を取得して接続
-conn = st.connection("gsheets", type=GSheetsConnection, **st.secrets)
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
     # spreadsheet引数を明示的に渡す
-    return conn.read(spreadsheet=st.secrets["spreadsheet"], ttl=0)
+    return conn.read(ttl=0)
 
 df = get_data()
 
