@@ -22,8 +22,9 @@ if not st.session_state['logged_in']:
         user_id = st.text_input("ユーザーID")
         password = st.text_input("パスワード", type="password")
         if st.form_submit_button("ログイン"):
-            if USER_CREDENTIALS.get(user_id) == password:
-                st.session_state.update({'logged_in': True, 'user_name': user_id})
+            # IDの空白などを考慮し、get()で安全に取得
+            if USER_CREDENTIALS.get(user_id.strip()) == password:
+                st.session_state.update({'logged_in': True, 'user_name': user_id.strip()})
                 st.rerun()
             else:
                 st.error("IDまたはパスワードが正しくありません")
@@ -31,13 +32,20 @@ if not st.session_state['logged_in']:
 
 # --- 4. メイン画面（ログイン後） ---
 
-# Googleスプレッドシートへの接続
-# Secretsから直接情報を取得して接続
+# Googleスプレッドシートへの接続設定
+# SecretsからURLを取得
+try:
+    SPREADSHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
+except KeyError:
+    st.error("SecretsにスプレッドシートのURLが設定されていません。")
+    st.stop()
+
+# 接続の確立
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data():
-    # spreadsheet引数を明示的に渡す
-    return conn.read(ttl=0)
+    # 明示的に URL を指定して最新データを読み込む
+    return conn.read(spreadsheet=SPREADSHEET_URL, ttl=0)
 
 df = get_data()
 
@@ -67,8 +75,8 @@ with st.sidebar.expander("📝 新規計画を登録する", expanded=True):
             # 既存データに結合
             updated_df = pd.concat([df, new_row], ignore_index=True)
             
-            # スプレッドシートを更新（サービスアカウント経由で書き込み）
-            conn.update(data=updated_df)
+            # スプレッドシートを更新（URLを明示して書き込み権限を確保）
+            conn.update(spreadsheet=SPREADSHEET_URL, data=updated_df)
             
             st.success("登録しました！")
             st.rerun()
@@ -79,8 +87,14 @@ with st.sidebar.expander("📝 新規計画を登録する", expanded=True):
 
 # --- 6. 状況表示（メトリクス） ---
 today_str = str(date.today())
-in_mountain = df[df["ステータス"] == "入山中"] if not df.empty else pd.DataFrame()
-overdue = in_mountain[in_mountain["下山予定日"] < today_str] if not in_mountain.empty else pd.DataFrame()
+# データが空の場合の処理
+if df.empty:
+    in_mountain = pd.DataFrame()
+    overdue = pd.DataFrame()
+else:
+    in_mountain = df[df["ステータス"] == "入山中"]
+    # 日付比較のために文字列比較
+    overdue = in_mountain[in_mountain["下山予定日"] < today_str]
 
 m1, m2 = st.columns(2)
 m1.metric("現在入山中", f"{len(in_mountain)} 名")
@@ -112,7 +126,7 @@ with tab1:
             if st.button("無事下山しました"):
                 # ステータスを更新して書き込み
                 df.at[selected_plan_idx, "ステータス"] = "下山済み"
-                conn.update(data=df)
+                conn.update(spreadsheet=SPREADSHEET_URL, data=df)
                 st.balloons()
                 st.success("下山報告を完了しました！")
                 st.rerun()
