@@ -93,4 +93,44 @@ else:
     overdue = in_mountain[in_mountain["下山予定日"] < today_str]
 
 m1, m2 = st.columns(2)
-m1.metric("現在入山中",
+m1.metric("現在入山中", f"{len(in_mountain)} 名")
+m2.metric("下山遅延", f"{len(overdue)} 名", 
+          delta=f"{len(overdue)}名" if not overdue.empty else None, 
+          delta_color="inverse")
+
+# --- 7. タブ表示 ---
+tab1, tab2 = st.tabs(["📌 現在の入山状況", "📜 全履歴"])
+
+with tab1:
+    if not in_mountain.empty:
+        # 遅延している行を赤くするスタイル
+        def highlight_overdue(s):
+            return ['background-color: #ffcccc' if s.下山予定日 < today_str else '' for _ in s]
+        
+        st.dataframe(in_mountain.style.apply(highlight_overdue, axis=1), use_container_width=True)
+        
+        # 下山報告機能
+        my_active_plans = in_mountain[in_mountain["氏名"] == st.session_state['user_name']]
+        if not my_active_plans.empty:
+            st.markdown("---")
+            st.subheader("✅ 下山報告")
+            selected_plan_idx = st.selectbox(
+                "報告する計画を選択", 
+                my_active_plans.index, 
+                format_func=lambda x: f"{df.loc[x, '山域']} ({df.loc[x, '入山日']}〜)"
+            )
+            if st.button("無事下山しました"):
+                # ステータスを更新して書き込み
+                df.at[selected_plan_idx, "ステータス"] = "下山済み"
+                conn.update(data=df)
+                st.balloons()
+                st.success("下山報告を完了しました！")
+                st.rerun()
+    else:
+        st.info("現在、入山中のメンバーはいません。")
+
+with tab2:
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.write("履歴はありません。")
