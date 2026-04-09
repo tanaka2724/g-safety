@@ -1,56 +1,48 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+from streamlit_gsheets import GSheetsConnection
 
-# 1. ユーザー名とパスワードの定義（本来はデータベースで管理しますが、まずはコード内で）
+# --- 1. ユーザー定義 ---
 USER_CREDENTIALS = {
     "yamada": "pass123",
     "sato": "mount456",
-    "suzuki": "safety789"
+    "suzuki": "safety789",
+    "a": "a"
 }
 
-# 2. ログイン状態の管理
+# --- 2. セッション状態の初期化 ---
 if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-    st.session_state['user_name'] = ""
+    st.session_state.update({'logged_in': False, 'user_name': ""})
 
-# --- ログイン画面 ---
+# --- 3. ログイン画面 ---
 if not st.session_state['logged_in']:
-    st.title("🏔 山岳会 安全管理ログイン")
-    user_id = st.text_input("ユーザーID")
-    password = st.text_input("パスワード", type="password")
+    st.title("g登攀計画管理")
+    with st.form("login_form"):
+        user_id = st.text_input("ユーザーID")
+        password = st.text_input("パスワード", type="password")
+        if st.form_submit_button("ログイン"):
+            if USER_CREDENTIALS.get(user_id) == password:
+                st.session_state.update({'logged_in': True, 'user_name': user_id})
+                st.rerun()
+            else:
+                st.error("IDまたはパスワードが正しくありません")
+    st.stop()
 
-    if st.button("ログイン"):
-        if user_id in USER_CREDENTIALS and USER_CREDENTIALS[user_id] == password:
-            st.session_state['logged_in'] = True
-            st.session_state['user_name'] = user_id
-            st.rerun()
-        else:
-            st.error("IDまたはパスワードが違います")
+# --- 4. メイン画面（ログイン後） ---
 
-# --- ログイン後のメイン画面 ---
-else:
-    st.sidebar.write(f"ログイン中: {st.session_state['user_name']} さん")
-    if st.sidebar.button("ログアウト"):
-        st.session_state['logged_in'] = False
-        st.rerun()
+# Googleスプレッドシートへの接続
+# secrets.toml の [connections.gsheets] 設定を自動的に使用します
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-    st.title("🌲 山岳会 動静監視システム")
+# データの読み込み
+def get_data():
+    # 引数を空にすることで secrets.toml の spreadsheet URL を使用し、
+    # かつサービスアカウント認証で読み込みます
+    data = conn.read(ttl=0)
+    return data.dropna(how="all")
 
-    # 3. 入力画面（ログインしている人の名前が自動で入る）
-    st.sidebar.header("登山計画の登録")
-    area = st.sidebar.text_input("山域")
-    start_date = st.sidebar.date_input("入山日", date.today())
-    end_date = st.sidebar.date_input("下山予定日", date.today())
+df = get_data()
 
-    if st.sidebar.button("登録"):
-        st.sidebar.success(f"{st.session_state['user_name']}さんの計画を受け付けました")
-
-    # 表示用サンプル（本来は保存されたデータを出す）
-    st.subheader("現在の入山状況")
-    data = {
-        "氏名": ["yamada", "sato"],
-        "山域": ["北アルプス", "八ヶ岳"],
-        "ステータス": ["入山中", "下山完了"]
-    }
-    st.table(pd.DataFrame(data))
+# サイドバー：ユーザー情報とログアウト
+st.sidebar.markdown(f"### 👤 ログイン: **{st.session
